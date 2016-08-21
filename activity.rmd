@@ -1,0 +1,105 @@
+---
+title: "Analysis of personal activity"
+author: "Jurij Robba"
+output: html_document
+---
+
+```{r libraries, echo=FALSE}
+
+library('caret', quietly = TRUE)
+library('HiDimDA', quietly = TRUE)
+
+```
+
+
+# Data
+
+### Downloading and reading into R
+
+Data can be downloaded from [training](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [testing](https://d396qusza40orc.cloudfront.net/predmachlearnpml-testing.csv) links.
+
+```{r download}
+
+site = 'https://d396qusza40orc.cloudfront.net/predmachlearn'
+download.file(paste0(site,'/pml-training.csv'), 'pml-training.csv', method='curl')
+download.file(paste0(site,'/pml-testing.csv'), 'pml-testing.csv', method='curl')
+
+```
+
+We read data into R:
+
+```{r reading}
+
+training <- read.csv('pml-training.csv', row.names = 1)
+testing <- read.csv('pml-testing.csv', row.names = 1)
+
+```
+
+### Cleaning data
+
+There are many columns that are mostly null. We remove them for our analysis. To simplify things we also remove columns with near zero variance.
+
+```{r remove_near_0_var}
+
+mostly_null <- sapply(training, function(x){sum(is.na(x))/length(x) > 0.5 })
+
+training <- training[,!mostly_null]
+testing <- testing[,!mostly_null]
+
+near_0_var <- nearZeroVar(training)
+
+training<-training[,-near_0_var]
+testing<- testing[,-near_0_var]
+
+```
+
+Additionally we remove highly correlated columns
+
+```{r correlation}
+
+correlated <- findCorrelation(cor(training[,sapply(training, class) %in% c('integer', 'numeric')]), cutoff = 0.7, names=TRUE)
+training<- training[,-which(names(testing) %in% correlated)]
+testing<- testing[,-which(names(testing) %in% correlated)]
+
+```
+
+
+# Bilding a model
+
+### Deviding data
+
+We divide training data on the 60-40 key, to use it as training set for algorithms and measure of their power
+
+```{r data_separation}
+
+idx<-sample(1:nrow(training), 0.6* nrow(training),replace = FALSE)
+initial_training <- training[idx,]
+verification <- training[-idx,]
+
+```
+
+### Training
+
+We use High Dimensional Discriminant Analysis (hdda) and Factor-Based Linear Discriminant Analysis (RFlda) algorithms. In both cases we use K nearest neighbors method of imputing missing data first.
+
+```{r training, message=FALSE, warning=FALSE}
+
+garbage <- capture.output(hdda <- train(classe~., data = initial_training, preProcess = 'knnImpute', method='hdda', na.action='na.pass'))
+RFlda <- train(classe~., data = initial_training, preProcess = 'knnImpute', method='RFlda', na.action='na.pass')
+
+```
+
+### Analysis and comparisons of models
+
+Hdda correctly predicts `r sprintf("%.2f",sum(predict(hdda, verification) == verification$classe) * 100 /nrow(verification))`% of cases in verification set. RFlda correctly predicts only `r sprintf("%.2f",sum(predict(RFlda, verification) == verification$classe) * 100/nrow(verification))`% of cases
+
+We can see that hdda performs much better. More than that it performs well enough to pass 80% requirement (In quiz it performed with 85%).
+
+Final prediction is:
+
+```{r}
+
+predict(hdda, testing)
+
+```
+
